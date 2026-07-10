@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
 import {
   Alert,
   Badge,
@@ -14,119 +14,24 @@ import {
   Spinner,
   Table,
 } from "react-bootstrap";
-
-type FileItem = {
-  id: string;
-  title: string;
-  original_name: string;
-  mime_type: string;
-  size: number;
-  processing_status: string;
-  scan_status: string | null;
-  scan_details: string | null;
-  metadata_json: Record<string, unknown> | null;
-  requires_attention: boolean;
-  created_at: string;
-  updated_at: string;
-};
-
-type AlertItem = {
-  id: number;
-  file_id: string;
-  level: string;
-  message: string;
-  created_at: string;
-};
-
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("ru-RU", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-function formatSize(size: number) {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function getLevelVariant(level: string) {
-  if (level === "critical") {
-    return "danger";
-  }
-
-  if (level === "warning") {
-    return "warning";
-  }
-
-  return "success";
-}
-
-function getProcessingVariant(status: string) {
-  if (status === "failed") {
-    return "danger";
-  }
-
-  if (status === "processing") {
-    return "warning";
-  }
-
-  if (status === "processed") {
-    return "success";
-  }
-
-  return "secondary";
-}
+import { getDownloadUrl } from "./api";
+import { formatDate, formatSize, getLevelVariant, getProcessingVariant } from "./formatters";
+import { useFileData } from "./useFileData";
 
 export default function Page() {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const {
+    files,
+    alerts,
+    isLoading,
+    isSubmitting,
+    errorMessage,
+    setErrorMessage,
+    loadData,
+    uploadFile,
+  } = useFileData();
   const [showModal, setShowModal] = useState(false);
   const [title, setTitle] = useState("");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  async function loadData() {
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const [filesResponse, alertsResponse] = await Promise.all([
-        fetch(`http://localhost:8000/files`, { cache: "no-store" }),
-        fetch(`http://localhost:8000/alerts`, { cache: "no-store" }),
-      ]);
-
-      if (!filesResponse.ok || !alertsResponse.ok) {
-        throw new Error("Не удалось загрузить данные");
-      }
-
-      const [filesData, alertsData] = await Promise.all([
-        filesResponse.json() as Promise<FileItem[]>,
-        alertsResponse.json() as Promise<AlertItem[]>,
-      ]);
-
-      setFiles(filesData);
-      setAlerts(alertsData);
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Произошла ошибка");
-    } finally {
-      setIsLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void loadData();
-  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -136,31 +41,11 @@ export default function Page() {
       return;
     }
 
-    setIsSubmitting(true);
-    setErrorMessage(null);
-
-    const formData = new FormData();
-    formData.append("title", title.trim());
-    formData.append("file", selectedFile);
-
-    try {
-      const response = await fetch(`http://localhost:8000/files`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        throw new Error("Не удалось загрузить файл");
-      }
-
+    const uploaded = await uploadFile(title.trim(), selectedFile);
+    if (uploaded) {
       setShowModal(false);
       setTitle("");
       setSelectedFile(null);
-      await loadData();
-    } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Произошла ошибка");
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -258,7 +143,7 @@ export default function Page() {
                             <td className="text-nowrap">
                               <Button
                                 as="a"
-                                href={`http://localhost:8000/files/${file.id}/download`}
+                                href={getDownloadUrl(file.id)}
                                 variant="outline-primary"
                                 size="sm"
                               >
